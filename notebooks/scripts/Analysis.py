@@ -1,7 +1,20 @@
 #!/usr/bin/env python
 
+"""
+Describe this entire script here.
+"""
+
+import subprocess
+import toytree
+import numpy as np
+import pandas as pd
+
+
+
 class Analysis:
-    
+    """
+    Describe this class here...
+    """    
     def __init__(self, seed, sptree, df):
         
         # Store initial arguments.
@@ -13,13 +26,15 @@ class Analysis:
         self.chrtrees = []
         self.errors = []
         
+
     def batch_chronos(self, path_with_marker, min_ages, max_ages, tip1, tip2, lamb):
-        '''
-        Run chronos on raxml trees.  Format min_ages, max_ages, tip1 and tip2 as tuples of the same length, formatted with
-        double quotes enclosing parentheses, with constituent elements in single quotes.
+        """
+        Run chronos on raxml trees.  Format min_ages, max_ages, tip1 
+        and tip2 as tuples of the same length, formatted with
+        double quotes enclosing parentheses, with constituent elements 
+        in single quotes.
         Examples: min_ages = "('5000000', '10000000')"; tip1 = "('r0', 'r4')"
-        '''
-    
+        """   
         np.random.seed(self.seed)
         chrtrees = []
         counter = 0
@@ -68,6 +83,8 @@ write.tree(ctree)"""
         for i in self.df.index:
             self.df.loc[i, "chr_trees_relax"] = self.chrtrees[i]
     
+
+
     def calculate_error(self):
         "Calculate error between true tree and chronos trees."
         
@@ -96,6 +113,8 @@ write.tree(ctree)"""
         for i in self.df.index:
             self.df.loc[i, "error"] = self.errors[i]
     
+
+
     def batch_mrbayes(self):
         "call mrbayes (maybe using ipa) to infer trees"
         pass
