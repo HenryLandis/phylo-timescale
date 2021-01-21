@@ -18,6 +18,8 @@ class Simulator:
     """
     Describe this class here...
 
+    ... stores results in a Pandas DataFrame as an attribute
+    of the Simulator class in .data.  
 
     Parameters
     -----------
@@ -38,8 +40,8 @@ class Simulator:
         self, 
         sptree, 
         reps,
-        min_Ne=5e5,
-        max_Ne=5e6,
+        min_Ne=100000,
+        max_Ne=1000000,
         min_Gen=1,
         max_Gen=1,
         outdir=".",
@@ -64,15 +66,31 @@ class Simulator:
         # random number generator
         self.rng = np.random.default_rng(seed=seed)
         
+        # the Ne and Gentime values used in simulations
+        # sample arrays of random values to apply to edges
+        self.samp_ns = self.rng.integers(
+            low=self.min_n, 
+            high=(self.max_n + 1 if self.max_n == self.max_n else self.min_n),
+            size=(self.reps, self.sptree.nnodes),
+        )
+
+        # if no variation in G then do not sample  
+        self.samp_gs = self.rng.uniform(
+            low=self.min_g, 
+            high=self.max_g, 
+            size=(self.reps, self.sptree.nnodes),            
+        )
+
         # setup dataframe for results. Will be eventually filled with a
         # mix of integers and string types.
         self.data = pd.DataFrame(
             columns=[
-                "spp_trees",
-                "raxml_trees",
+                "spp_tree",
+                "seqalign",
                 "nsnps",
-                "chr_trees_relaxed",
-                "chr_trees_strict",
+                "raxml_tree",
+                "chronos_relaxed",
+                "chronos_strict",
                 "error",
             ],
             index=range(self.reps),
@@ -91,102 +109,83 @@ class Simulator:
             3. infer gene trees on simulated sequences.
             4. infer chronogram from raxml gene trees.           
         """
-        #self.sample_sptree_rate_var()
-        # self.batch_ipcoal()
+        self.transform_sptree_to_gen_units()
+        self.simulate_geneal_and_seqs()
         # self.batch_raxml()
         # self.batch_chronos()
 
 
 
-    def sample_sptree_rate_var(self):
+    def transform_sptree_to_gen_units(self):
         """
-        Apply rate variation to the edges of the species tree.
+        Apply rate variation to the edges of the species tree by 
+        transforming edge lengths into units of generations.
         """ 
-
-        # sample arrays of random values to apply to edges
-        samp_nes = self.rng.randint(
-            low=self.min_n, 
-            high=self.max_n, 
-            size=(self.reps, self.sptree.ntips),
-        )
-        samp_gs = self.rng.randint(
-            low=self.min_g, 
-            high=self.max_g, 
-            size=(self.reps, self.sptree.ntips),            
-        )
-
         # iterate over sampled sets of values to create transformed trees.
         for idx in self.data.index:
-                  
+
             # get a tree copy and random values
             tre = self.sptree.copy()
-            vals_n = samp_nes[idx]
-            vals_g = samp_gs[idx]
 
-            # apply Nes to the tree
-            tre = tre.set_node_values(
-                "Ne", dict(zip(range(self.sptree.ntips), vals_n))
-            )
-
-            # apply Gs to the tree
-            tre = tre.set_node_values(
-                "g", dict(zip(range(self.sptree.ntips), vals_g))
-            )
-    
             # Divide edge lengths (absolute time) by generation time to 
-            # convert tree to units of generations.
+            # convert tree to units of number of generations. Tree is 
+            # now likely to be non-ultrametric.
+            gdict = dict(zip(range(self.sptree.nnodes), self.samp_gs[idx]))
+            tre = tre.set_node_values("g", values=gdict)
             tre = tre.set_node_values(
                 "dist", 
                 {i: j.dist / j.g for (i, j) in tre.idx_dict.items()}
             )
-    
-            # write tree to newick with Ne values on nodes
-            self.data.loc[idx, "spp_trees"] = tre.write()
 
+            # save tree to newick with Ne values as "names" in format=1
+            self.data.loc[idx, "spp_trees"] = tre.write(tree_format=0)
+
+        # report to user
         logger.info(f"applied rate variation to {self.reps} spp. trees")
 
-        #     reps.append(i)
-        #     savefile = outdir + file_marker + '{0:03}'.format(counter) + ".tre"
-        #     i.write(savefile)
-            
-        # # Save to instance variable and dataframe.
-        # self.reps = reps
-        # for i in range(self.ntrees):
-        #     self.df.loc[i, "rate_trees"] = self.reps[i]
-    
-        # return "Saved " + str(self.ntrees) + " trees."
-    
 
 
-
-    def batch_ipcoal(self, outdir, file_marker):
+    def simulate_geneal_and_seqs(self, outdir, file_marker):
         """
-        Generate sequence data on tree variants.
+        Setup ipcoal simualtion using sptree in units of generations
+        and apply Ne values from the .samp_ns array. Simulate 
+        genealogies and sequence data on each tree.
         """       
-        counter = 0
-        seqs = []
-        for i in self.reps:
-        
-            # Increment counter.
-            counter += 1
-        
-            # Run ipcoal.
-            model = ipcoal.Model(i, nsamples = 2, seed = self.seed) 
+        for idx in self.data.index:
+            
+            # load the transformed sptree
+            tre = self.data.at[idx, "spp_trees"]
+
+            # set Ne values on the tree, which ipcoal expects
+            tre = tre.set_node_values(
+                "Ne", 
+                dict(zip(range(tre.nnodes), self.samp_ns[idx])),
+            )
+
+            # simulate genealogies on this species tree
+            model = ipcoal.Model(
+                tree=tre, 
+                nsamples=2, 
+                seed=self.rng.integers(0, 1e9),
+                mut=1e-8,
+                recomb=1e-9,
+            )
             model.sim_loci(1000, 100) # (loci, bp) 
             
-            # get phy output name
-            outname = file_marker + "_diploid" + '{0:03}'.format(counter) + ".phy"
-
             # Write a diploid phylip file.
             model.write_concat_to_phylip(
-                outdir=outdir, 
+                outdir=self.outdir, 
                 diploid=True,
-                name=outname,
+                name=self.prefix,
             )
-            seqs.append(outdir + file_marker + "_diploid" + '{0:03}'.format(counter) + ".phy")
+
+            # store genealogy to species tree
+            self.data.loc[idx, ""]
             
         # Save the list of concatenated phylip files to instance variable.   
         self.seqs = seqs
+
+
             
     def batch_raxml(self, outdir, file_marker, outdir_for_chronos):
         '''
@@ -217,9 +216,10 @@ class Simulator:
             rax_toytree.write(outdir_for_chronos + file_marker + '{0:03}'.format(counter) + ".tre")
             
             # Add raxtree to list.
-            raxtrees.append(outdir_for_chronos + file_marker + '{0:03}'.format(counter) + ".tre") # rax_toytree
+            # raxtrees.append(outdir_for_chronos + file_marker + '{0:03}'.format(counter) + ".tre")
+            raxtrees.append(rax_toytree)
             
         # Save to instance variable and dataframe.
         self.raxtrees = raxtrees
-        for i in range(self.ntrees):
+        for i in self.df.index:
             self.df.loc[i, "rax_trees"] = self.raxtrees[i]

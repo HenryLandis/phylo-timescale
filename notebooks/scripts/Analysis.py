@@ -38,7 +38,7 @@ class Analysis:
         np.random.seed(self.seed)
         chrtrees = []
         counter = 0
-        for i in self.raxtrees:
+        for i in self.df["rax_trees"]:
         
             # Increment counter.
             counter += 1
