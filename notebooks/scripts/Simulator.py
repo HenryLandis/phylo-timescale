@@ -336,6 +336,7 @@ if __name__ == "__main__":
     # Run this test with ctrl+shift+B in editor
 
     sptree = toytree.rtree.unittree(ntips=10, treeheight=1e6, seed=123)
+    print(sptree)
 
     sim = Simulator(
         tree=sptree, 
@@ -358,4 +359,5 @@ if __name__ == "__main__":
 
     # show results
     print(sim.data.T)
-    print(sim.data)
+    chtree = toytree.tree(sim.data.at[0, 'chronos_relaxed'])
+    print(chtree)
