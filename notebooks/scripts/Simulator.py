@@ -217,9 +217,10 @@ class Simulator:
             rax_toytree.write(outdir_for_chronos + file_marker + '{0:03}'.format(counter) + ".tre")
             
             # Add raxtree to list.
-            raxtrees.append(outdir_for_chronos + file_marker + '{0:03}'.format(counter) + ".tre") # rax_toytree
+            # raxtrees.append(outdir_for_chronos + file_marker + '{0:03}'.format(counter) + ".tre")
+            raxtrees.append(rax_toytree)
             
         # Save to instance variable and dataframe.
         self.raxtrees = raxtrees
-        for i in range(self.ntrees):
+        for i in self.df.index:
             self.df.loc[i, "rax_trees"] = self.raxtrees[i]
