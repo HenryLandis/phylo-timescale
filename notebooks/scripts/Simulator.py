@@ -18,7 +18,7 @@ import ipyrad.analysis as ipa
 pd.set_option("max_colwidth", 14)
 
 
-# Rscript that can accept arbitrary number of calibrated nodes.
+# Rscript that can accept arbitrary number of calibrated nodes for chronos.
 # entered as {(tip1, tip2): (min_age, max_age)} to apply the 
 # age constraint to the mrca of the two tips.
 RSTRING = """
@@ -50,6 +50,13 @@ ctree <- chronos(
 )
 write.tree(ctree)
 """
+
+# strings to define calibration settings in mrbayes.
+treeage_string = "prset treeagepr={};"
+calib_string = '''constraint {0}={1};
+  calibrate {0}={2};'''
+topology_string = '''prset topologypr=constraints({});
+  prset nodeagepr=calibrated;'''
 
 
 
@@ -95,6 +102,10 @@ class Simulator:
             "nsites": 1000,
         },
         chronos_constraints={},
+        mb_names = [],
+        mb_tips = [],
+        mb_priors = [],
+        mb_treeagepr = "",
         seed=None,
         ):
         
@@ -329,6 +340,61 @@ class Simulator:
                 key = "chronos_{}".format(model)
                 self.data.loc[idx, key] = ctre
 
+    def batch_mrbayes(self):
+        '''Run mrbayes on sequence data from ipcoal to infer trees.'''
+
+        for idx in self.data.index:
+
+            # Define and run mrbayes object.
+            mb = ipa.mrbayes(
+            data = self.data.at[idx, "seqpath"],
+            name = "tmp",
+            workdir = tempfile.gettempdir(),
+            clock_model = 2,
+            constraints = self.sptree,
+            ngen = int(1e6),
+            nruns = 2,
+            )
+
+            # Add priors for tree age & clade names, plus topology fixing.
+            with open("tmp.nex", 'r+') as fd:
+                contents = fd.readlines()
+                fd.seek(0)
+                contents.insert(24, "  " + treeage_string.format(mb_treeagepr) + "\n\n")
+                contents.insert(27, "  " + topology_string.format(", ".join(names)) + "\n")
+                contents.insert(29, '''  startvals Tau = fixedtree;
+            propset ExtSprClock(Tau,V)$prob=0;
+            propset NNIClock(Tau,V)$prob=0;
+            propset ParsSPRClock(Tau,V)$prob=0;\n\n''')
+                fd.seek(0)
+
+                # Add calibrations for individual clades.
+                for i in range(len(names)):
+                    if i == len(names) - 1:
+                        contents.insert((25 + 1*i), "  " + calib_string.format(mb_names[i], mb_tips[i], mb_priors[i]))
+                        fd.seek(0)
+                    else: 
+                        contents.insert((25 + 1*i), "  " + calib_string.format(mb_names[i], mb_tips[i], mb_priors[i]) + "\n\n")
+                        fd.seek(0)
+
+                # Remove unnecessary line.
+                for line in contents:
+                    if line.strip("\n") != "  prset topologypr=fixed(fixedtree);":
+                        fd.write(line)
+
+            # Run mrbayes object.
+            mb.run(force=True, block=False, quiet=True)
+
+            # Save consensus tree to a file.
+            mbtree = toytree.tree(mb.tree.constre, tree_format = 10)
+            self.data.loc[idx, "mrbayes_tree"] = mbtree.write(tree_format=0)
+
+
+
+
+
+
+
 
 
 if __name__ == "__main__":
@@ -354,6 +420,10 @@ if __name__ == "__main__":
             ("r0", "r1"): (1e2, 1e4),
             ("r1", "r6"): (1e5, 1e5),        
         },
+        mb_names = [test1, test2, test3],
+        mb_tips = ["r1 r2 r3", "r4 r5 r6", "r7 r8 r9 r10"],
+        mb_priors = ["uniform(1, 100", "uniform(1, 100", "uniform(1, 100"],
+        mb_treeagepr = "uniform(1, 100)"
     )
     sim.run()
 
