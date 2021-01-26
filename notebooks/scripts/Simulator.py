@@ -134,7 +134,7 @@ class Simulator:
         # sample arrays of random values to apply to edges
         self.samp_ns = self.rng.integers(
             low=self.min_n, 
-            high=(self.max_n + 1 if self.max_n == self.max_n else self.min_n),
+            high=(self.min_n + 1 if self.min_n == self.max_n else self.max_n),
             size=(self.reps, self.sptree.nnodes),
         )
 
