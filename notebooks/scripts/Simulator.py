@@ -166,6 +166,7 @@ class Simulator:
                 "raxml_tree",
                 "chronos_correlated",
                 "chronos_relaxed",
+                "mrbayes_tree",
                 "error",
             ],
             index=range(self.reps),
@@ -347,13 +348,13 @@ class Simulator:
 
             # Define and run mrbayes object.
             mb = ipa.mrbayes(
-            data = self.data.at[idx, "seqpath"],
-            name = "tmp",
-            workdir = tempfile.gettempdir(),
-            clock_model = 2,
-            constraints = self.sptree,
-            ngen = int(1e6),
-            nruns = 2,
+                data = self.data.at[idx, "seqpath"],
+                name = "tmp",
+                workdir = tempfile.gettempdir(),
+                clock_model = 2,
+                constraints = self.sptree,
+                ngen = int(1e6),
+                nruns = 2,
             )
 
             # Add priors for tree age & clade names, plus topology fixing.
@@ -386,7 +387,7 @@ class Simulator:
             mb.run(force=True, block=False, quiet=True)
 
             # Save consensus tree to a file.
-            mbtree = toytree.tree(mb.tree.constre, tree_format = 10)
+            mbtree = toytree.tree(mb.tree.constre, tree_format=10)
             self.data.loc[idx, "mrbayes_tree"] = mbtree.write(tree_format=0)
 
 
@@ -420,9 +421,9 @@ if __name__ == "__main__":
             ("r0", "r1"): (1e2, 1e4),
             ("r1", "r6"): (1e5, 1e5),        
         },
-        mb_names = [test1, test2, test3],
+        mb_names = ["test1", "test2", "test3"],
         mb_tips = ["r1 r2 r3", "r4 r5 r6", "r7 r8 r9 r10"],
-        mb_priors = ["uniform(1, 100", "uniform(1, 100", "uniform(1, 100"],
+        mb_priors = ["uniform(1, 100)", "uniform(1, 100)", "uniform(1, 100"],
         mb_treeagepr = "uniform(1, 100)"
     )
     sim.run()
