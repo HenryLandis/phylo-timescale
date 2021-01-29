@@ -86,7 +86,7 @@ class Simulator:
         Examples include {'mut': 1e-8, 'recomb': 1e-9}.
     """
     def __init__(
-        self, 
+        self,
         tree, 
         reps,
         min_Ne=100000,
@@ -102,10 +102,10 @@ class Simulator:
             "nsites": 1000,
         },
         chronos_constraints={},
-        mb_names = [],
-        mb_tips = [],
-        mb_priors = [],
-        mb_treeagepr = "",
+        mb_names=[],
+        mb_tips=[],
+        mb_priors=[],
+        mb_treeagepr=None,
         seed=None,
         ):
         
@@ -156,12 +156,19 @@ class Simulator:
             size=(self.reps, self.sptree.nnodes),            
         )
 
+        # store mrbayes params
+        self.mb_names = mb_names
+        self.mb_tips = mb_tips
+        self.mb_priors = mb_priors
+        self.mb_treeagepr = mb_treeagepr
+
         # setup dataframe for results. Will be eventually filled with a
         # mix of integers and string types.
         self.data = pd.DataFrame(
             columns=[
                 "spp_tree",
-                "seqpath",
+                "phy_seqpath",
+                "nex_seqpath",
                 "nsnps",
                 "raxml_tree",
                 "chronos_correlated",
@@ -189,6 +196,7 @@ class Simulator:
         self.simulate_geneal_and_seqs()
         self.batch_raxml()
         self.batch_chronos()
+        self.batch_mrbayes()
 
 
 
@@ -254,12 +262,23 @@ class Simulator:
                 diploid=True,
             )
 
+            # Write a diploid nexus file.
+            model.write_concat_to_nexus(
+                name=self.prefix + "_{}".format(idx),
+                outdir=self.outdir,
+                diploid=True,
+            )
+
             # store the number of snps
             self.data.loc[idx, "nsnps"] = model.df.nsnps.sum()
 
             # store the path to the sequence alignment
-            self.data.loc[idx, "seqpath"] = os.path.join(
+            self.data.loc[idx, "phy_seqpath"] = os.path.join(
                 self.outdir, self.prefix + "_{}.phy".format(idx)
+            )
+
+            self.data.loc[idx, "nex_seqpath"] = os.path.join(
+                self.outdir, self.prefix + "_{}.nex".format(idx)
             )
         print("simulated sequences on {} species trees.".format(self.reps))
 
@@ -274,7 +293,7 @@ class Simulator:
             # Define and run raxml object.
             rax = ipa.raxml(
                 name="tmp",
-                data=self.data.at[idx, "seqpath"],
+                data=self.data.at[idx, "phy_seqpath"],
                 workdir=tempfile.gettempdir(),
                 N=100,
                 T=8,
@@ -287,7 +306,7 @@ class Simulator:
             self.data.loc[idx, "raxml_tree"] = raxtree.write(tree_format=0)
 
             # until/unless we add mrbayes, we can remove sequence files here
-            os.remove(self.data.at[idx, "seqpath"])
+            # os.remove(self.data.at[idx, "seqpath"])
 
 
     def batch_chronos(self):
@@ -348,7 +367,7 @@ class Simulator:
 
             # Define and run mrbayes object.
             mb = ipa.mrbayes(
-                data = self.data.at[idx, "seqpath"],
+                data = self.data.at[idx, "nex_seqpath"],
                 name = "tmp",
                 workdir = tempfile.gettempdir(),
                 clock_model = 2,
@@ -358,11 +377,11 @@ class Simulator:
             )
 
             # Add priors for tree age & clade names, plus topology fixing.
-            with open("tmp.nex", 'r+') as fd:
+            with open(mb.nexus, 'r+') as fd:
                 contents = fd.readlines()
                 fd.seek(0)
-                contents.insert(24, "  " + treeage_string.format(mb_treeagepr) + "\n\n")
-                contents.insert(27, "  " + topology_string.format(", ".join(names)) + "\n")
+                contents.insert(24, "  " + treeage_string.format(self.mb_treeagepr) + "\n\n")
+                contents.insert(27, "  " + topology_string.format(", ".join(self.mb_names)) + "\n")
                 contents.insert(29, '''  startvals Tau = fixedtree;
             propset ExtSprClock(Tau,V)$prob=0;
             propset NNIClock(Tau,V)$prob=0;
@@ -370,25 +389,29 @@ class Simulator:
                 fd.seek(0)
 
                 # Add calibrations for individual clades.
-                for i in range(len(names)):
-                    if i == len(names) - 1:
-                        contents.insert((25 + 1*i), "  " + calib_string.format(mb_names[i], mb_tips[i], mb_priors[i]))
+                for i in range(len(self.mb_names)):
+                    if i == len(self.mb_names) - 1:
+                        contents.insert((25 + i), "  " + calib_string.format(self.mb_names[i], self.mb_tips[i], self.mb_priors[i]))
                         fd.seek(0)
                     else: 
-                        contents.insert((25 + 1*i), "  " + calib_string.format(mb_names[i], mb_tips[i], mb_priors[i]) + "\n\n")
+                        contents.insert((25 + i), 
+                        "  " + calib_string.format(self.mb_names[i], self.mb_tips[i], self.mb_priors[i]) + "\n\n")
                         fd.seek(0)
 
                 # Remove unnecessary line.
                 for line in contents:
-                    if line.strip("\n") != "  prset topologypr=fixed(fixedtree);":
+                    if line.rstrip("\n") != "  prset topologypr=fixed(fixedtree);":
                         fd.write(line)
 
             # Run mrbayes object.
-            mb.run(force=True, block=False, quiet=True)
+            subprocess.run(
+                    ["mb", mb.nexus], 
+                    check=True,
+                    stdout=subprocess.PIPE,
+                )
 
-            # Save consensus tree to a file.
-            mbtree = toytree.tree(mb.tree.constre, tree_format=10)
-            self.data.loc[idx, "mrbayes_tree"] = mbtree.write(tree_format=0)
+            # Store output.
+            self.data.loc[idx, "mrbayes_tree"] = toytree.tree(mb.trees.constre, tree_format=10)
 
 
 
@@ -421,10 +444,10 @@ if __name__ == "__main__":
             ("r0", "r1"): (1e2, 1e4),
             ("r1", "r6"): (1e5, 1e5),        
         },
-        mb_names = ["test1", "test2", "test3"],
-        mb_tips = ["r1 r2 r3", "r4 r5 r6", "r7 r8 r9 r10"],
-        mb_priors = ["uniform(1, 100)", "uniform(1, 100)", "uniform(1, 100"],
-        mb_treeagepr = "uniform(1, 100)"
+        mb_names=["test1", "test2", "test3"],
+        mb_tips=["r0 r1 r2 r3", "r4 r5", "r6 r7 r8 r9"],
+        mb_priors=["uniform(1, 100)", "uniform(1, 100)", "uniform(1, 100)"],
+        mb_treeagepr="uniform(1, 100)"
     )
     sim.run()
 
@@ -432,3 +455,8 @@ if __name__ == "__main__":
     print(sim.data.T)
     chtree = toytree.tree(sim.data.at[0, 'chronos_relaxed'])
     print(chtree)
+    mbtree = toytree.tree(sim.data.at[0, 'mrbayes_tree'])
+    print(mbtree)
+
+    # save results to csv
+    sim.data.to_csv("~/phylo-timescale/sim.csv")
