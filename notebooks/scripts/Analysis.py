@@ -4,117 +4,160 @@
 Describe this entire script here.
 """
 
-import subprocess
 import toytree
 import numpy as np
 import pandas as pd
 
-
+# makes pandas DF with wide columns look nicer
+pd.set_option("max_colwidth", 14)
 
 class Analysis:
     """
-    Describe this class here...
+    Calculate simple and relative errors of trees from Simulator object compared to a given true tree.
     """    
-    def __init__(self, seed, sptree, df):
-        
-        # Store initial arguments.
-        self.seed = seed
-        self.sptree = sptree
-        self.df = df
-        
-        # Objects to be created.
-        self.chrtrees = []
-        self.errors = []
-        
+    def __init__(
+        self,
+        tree,
+        df,
+        seed=None
+        ):
 
-    def batch_chronos(self, path_with_marker, min_ages, max_ages, tip1, tip2, lamb):
+        # Store the species tree.
+        self.sptree = toytree.tree(tree)
+        
+        # Store copy of pd dataframe from Simulator object.
+        self.data = df.copy()
+    
+
+
+    def run(self):
         """
-        Run chronos on raxml trees.  Format min_ages, max_ages, tip1 
-        and tip2 as tuples of the same length, formatted with
-        double quotes enclosing parentheses, with constituent elements 
-        in single quotes.
-        Examples: min_ages = "('5000000', '10000000')"; tip1 = "('r0', 'r4')"
-        """   
-        np.random.seed(self.seed)
-        chrtrees = []
-        counter = 0
-        for i in self.df["rax_trees"]:
-        
-            # Increment counter.
-            counter += 1
-        
-            # Rstring with chronos information.
-            rstring = f"""library(ape)
-btree <- read.tree("{i}")
-min_ages <- c{min_ages}
-max_ages <- c{max_ages}
-tip1 <- c{tip1}
-tip2 <- c{tip2}
-nodes <- c()
-for (i in 1:length(tip1)) {{
-    mrca <- getMRCA(btree, c(tip1[i], tip2[i]))
-    nodes <- append(nodes, mrca)
-}}
-calib <- data.frame(node = nodes, age.min = as.numeric(min_ages), age.max = as.numeric(max_ages))
-ctree <- chronos(btree, lambda = {lamb}, model = "relaxed", calibration = calib)
-write.tree(ctree)"""
-            
-            # Write the R script to a file.
-            with open(path_with_marker + '{0:03}'.format(counter) + ".R", 'w') as out:
-                out.write(rstring)
-            
-            # byte = rstring.encode()
-            # temp = tempfile.NamedTemporaryFile()
-            # temp.write(byte)
-            # temp.seek(0)
-            # print(temp.read())
-    
-            cmd = ["Rscript", path_with_marker + '{0:03}'.format(counter) + ".R"] # Runs R script saved to path.
-            out = subprocess.check_output(cmd).decode()
-            results, tree = [i.strip().strip('"') for i in out.split("[1]")]
-
-            # Add chronos tree to list.
-            chrtrees.append(tree)
-            
-            # temp.close()
-    
-        # Save to instance variable and dataframe.
-        self.chrtrees = chrtrees
-        for i in self.df.index:
-            self.df.loc[i, "chr_trees_relax"] = self.chrtrees[i]
-    
+        Run simple and relative error.  
+        """
+        self.simple_error()
+        self.relative_error()
 
 
-    def calculate_error(self):
-        "Calculate error between true tree and chronos trees."
-        
-        errors = []
+
+    def simple_error(self):
+        "Calculate simple error between true tree and chronos or mrbayes output."
         
         # Get edge lengths of true tree.
-        true_edge_lengths = self.sptree.get_edge_values(feature = "dist")
+        true_edge_lengths = self.sptree.get_edge_values(feature="height")
         
-        # For each chrtree, get edge lengths to subtract from true edge lengths.
-        for i in self.chrtrees:
-            chrtree = toytree.tree(i)
-            chr_edge_lengths = chrtree.get_edge_values(feature = "dist")
-            subtract_array = true_edge_lengths - chr_edge_lengths
+        for idx in self.data.index:
+
+            # Calculate error for three tree types.
+            for model in ["chronos_correlated", "chronos_relaxed", "mrbayes_tree"]:
+
+                # Get edge lengths to subtract from true edge lengths.
+                dtree = toytree.tree(self.data.at[idx, model])
+                dtree_edge_lengths = dtree.get_edge_values(feature="height")
+
+                # Calculate array.
+                subtract_array = true_edge_lengths - dtree_edge_lengths
             
-            # Square each element in the array.
-            squared_array = np.square(subtract_array)
+                # Square each element in the array.
+                squared_array = np.square(subtract_array)
             
-            # Sum all elements in the array (sum of squares).
-            sum_squares = np.sum(squared_array)
-            
-            # Add error to list.
-            errors.append(sum_squares)
-            
-        # Save to instance variable and dataframe.
-        self.errors = errors
-        for i in self.df.index:
-            self.df.loc[i, "error"] = self.errors[i]
-    
+                # Sum all elements in the array (sum of squares).
+                sum_squares = np.sum(squared_array)
+
+                # Save error to appropriate colmun.
+                if model == "chronos_correlated":
+                    self.data.loc[idx, "chc_simple_error"] = sum_squares
+                elif model == "chronos_relaxed":
+                    self.data.loc[idx, "chr_simple error"] = sum_squares
+                elif model == "mrbayes_tree":
+                    self.data.loc[idx, "mb_simple_error"] = sum_squares
 
 
-    def batch_mrbayes(self):
-        "call mrbayes (maybe using ipa) to infer trees"
-        pass
+
+    def relative_error(self):
+        "Calculate relative error between true tree and chronos or mrbayes output."
+
+        # Get edge lengths of true tree.
+        true_edge_lengths = self.sptree.get_edge_values(feature="height")
+        
+        for idx in self.data.index:
+
+            # Calculate error for three tree types.
+            for model in ["chronos_correlated", "chronos_relaxed", "mrbayes_tree"]:
+
+                # Scale tree to match height of true tree, then get edge lengths to subtract from true edge lengths.
+                dtree = toytree.tree(self.data.at[idx, model])
+                dtree.mod.node_scale_root_height(treeheight=list(self.sptree.get_feature_dict("height").keys())[0])
+                dtree_edge_lengths = dtree.get_edge_values(feature="height")
+
+                # Calculate array.
+                subtract_array = true_edge_lengths - dtree_edge_lengths
+            
+                # Square each element in the array.
+                squared_array = np.square(subtract_array)
+            
+                # Sum all elements in the array (sum of squares).
+                sum_squares = np.sum(squared_array)
+
+                # Save error to appropriate colmun.
+                if model == "chronos_correlated":
+                    self.data.loc[idx, "chc_relative_error"] = sum_squares
+                elif model == "chronos_relaxed":
+                    self.data.loc[idx, "chr_relative_error"] = sum_squares
+                elif model == "mrbayes_tree":
+                    self.data.loc[idx, "mb_relative_error"] = sum_squares
+
+
+
+
+
+
+
+
+
+if __name__ == "__main__":
+
+    # Run this test with ctrl+shift+B in editor
+
+    from Simulator import Simulator
+
+    sptree = toytree.rtree.unittree(ntips=10, treeheight=1e6, seed=123)
+    print(sptree)
+
+    sim = Simulator(
+        tree=sptree, 
+        reps=4, 
+        min_Ne=1e4,
+        max_Ne=1e4,
+        seed=123,
+        ipcoal_kwargs={
+            "mut": 1e-8, 
+            "recomb": 1e-9, 
+            "nloci": 20, 
+            "nsites": 1000,
+        },
+        chronos_constraints={
+            ("r0", "r1"): (1e2, 1e4),
+            ("r1", "r6"): (1e5, 1e5),        
+        },
+        mb_names=["test1", "test2", "test3"],
+        mb_tips=["r0 r1 r2 r3", "r4 r5", "r6 r7 r8 r9"],
+        mb_priors=["uniform(1, 100)", "uniform(1, 100)", "uniform(1, 100)"],
+        mb_treeagepr="uniform(1, 100)"
+    )
+    sim.run()
+
+    ana=Analysis(
+        tree=sim.sptree,
+        df=sim.data
+        )
+    ana.run()
+
+    # show results
+    print(ana.data.T)
+    chtree = toytree.tree(ana.data.at[0, 'chronos_relaxed'])
+    print(chtree)
+    mbtree = toytree.tree(ana.data.at[0, 'mrbayes_tree'])
+    print(mbtree)
+
+    # save results to csv
+    sim.data.to_csv("~/phylo-timescale/ana.csv")

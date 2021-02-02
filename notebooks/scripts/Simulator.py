@@ -172,9 +172,14 @@ class Simulator:
                 "nsnps",
                 "raxml_tree",
                 "chronos_correlated",
+                "chc_simple_error",
+                "chc_relative_error",
                 "chronos_relaxed",
+                "chr_simple error",
+                "chr_relative_error",
                 "mrbayes_tree",
-                "error",
+                "mb_simple_error",
+                "mb_relative_error"
             ],
             index=range(self.reps),
             data=0,
@@ -183,7 +188,6 @@ class Simulator:
 
 
 
-    # , outdir, file_marker, path, min_ages, max_ages, tips, lamb):
     def run(self):
         """
         Runs a series of functions to:
@@ -430,7 +434,7 @@ if __name__ == "__main__":
 
     sim = Simulator(
         tree=sptree, 
-        reps=4, 
+        reps=1, 
         min_Ne=1e4,
         max_Ne=1e4,
         seed=123,
