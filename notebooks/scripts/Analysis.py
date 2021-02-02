@@ -160,4 +160,4 @@ if __name__ == "__main__":
     print(mbtree)
 
     # save results to csv
-    sim.data.to_csv("~/phylo-timescale/ana.csv")
+    ana.data.to_csv("~/phylo-timescale/ana.csv")
