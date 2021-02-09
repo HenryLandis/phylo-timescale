@@ -404,8 +404,12 @@ class Simulator:
 
                 # Remove unnecessary line.
                 for line in contents:
-                    if line.rstrip("\n") != "  prset topologypr=fixed(fixedtree);":
+                    if line.startswith("  prset topologypr=fixed(fixedtree);"):
+                        pass
+                    else:
                         fd.write(line)
+
+                # if above fails, split read/write as two with-loops, use contents variable to transfer
 
             # Run mrbayes object.
             subprocess.run(

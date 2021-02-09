@@ -125,7 +125,7 @@ if __name__ == "__main__":
 
     sim = Simulator(
         tree=sptree, 
-        reps=4, 
+        reps=1, 
         min_Ne=1e4,
         max_Ne=1e4,
         seed=123,
