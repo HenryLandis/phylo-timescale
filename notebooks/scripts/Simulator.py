@@ -18,7 +18,7 @@ import ipyrad.analysis as ipa
 pd.set_option("max_colwidth", 14)
 
 
-# Rscript that can accept arbitrary number of calibrated nodes.
+# Rscript that can accept arbitrary number of calibrated nodes for chronos.
 # entered as {(tip1, tip2): (min_age, max_age)} to apply the 
 # age constraint to the mrca of the two tips.
 RSTRING = """
@@ -51,6 +51,13 @@ ctree <- chronos(
 write.tree(ctree)
 """
 
+# strings to define calibration settings in mrbayes.
+treeage_string = "prset treeagepr={};"
+calib_string = '''constraint {0}={1};
+  calibrate {0}={2};'''
+topology_string = '''prset topologypr=constraints({});
+  prset nodeagepr=calibrated;'''
+
 
 
 class Simulator:
@@ -79,7 +86,7 @@ class Simulator:
         Examples include {'mut': 1e-8, 'recomb': 1e-9}.
     """
     def __init__(
-        self, 
+        self,
         tree, 
         reps,
         min_Ne=100000,
@@ -95,6 +102,10 @@ class Simulator:
             "nsites": 1000,
         },
         chronos_constraints={},
+        mb_names=[],
+        mb_tips=[],
+        mb_priors=[],
+        mb_treeagepr=None,
         seed=None,
         ):
         
@@ -145,17 +156,30 @@ class Simulator:
             size=(self.reps, self.sptree.nnodes),            
         )
 
+        # store mrbayes params
+        self.mb_names = mb_names
+        self.mb_tips = mb_tips
+        self.mb_priors = mb_priors
+        self.mb_treeagepr = mb_treeagepr
+
         # setup dataframe for results. Will be eventually filled with a
         # mix of integers and string types.
         self.data = pd.DataFrame(
             columns=[
                 "spp_tree",
-                "seqpath",
+                "phy_seqpath",
+                "nex_seqpath",
                 "nsnps",
                 "raxml_tree",
                 "chronos_correlated",
+                "chc_simple_error",
+                "chc_relative_error",
                 "chronos_relaxed",
-                "error",
+                "chr_simple error",
+                "chr_relative_error",
+                "mrbayes_tree",
+                "mb_simple_error",
+                "mb_relative_error"
             ],
             index=range(self.reps),
             data=0,
@@ -164,7 +188,6 @@ class Simulator:
 
 
 
-    # , outdir, file_marker, path, min_ages, max_ages, tips, lamb):
     def run(self):
         """
         Runs a series of functions to:
@@ -177,6 +200,7 @@ class Simulator:
         self.simulate_geneal_and_seqs()
         self.batch_raxml()
         self.batch_chronos()
+        self.batch_mrbayes()
 
 
 
@@ -242,12 +266,23 @@ class Simulator:
                 diploid=True,
             )
 
+            # Write a diploid nexus file.
+            model.write_concat_to_nexus(
+                name=self.prefix + "_{}".format(idx),
+                outdir=self.outdir,
+                diploid=True,
+            )
+
             # store the number of snps
             self.data.loc[idx, "nsnps"] = model.df.nsnps.sum()
 
             # store the path to the sequence alignment
-            self.data.loc[idx, "seqpath"] = os.path.join(
+            self.data.loc[idx, "phy_seqpath"] = os.path.join(
                 self.outdir, self.prefix + "_{}.phy".format(idx)
+            )
+
+            self.data.loc[idx, "nex_seqpath"] = os.path.join(
+                self.outdir, self.prefix + "_{}.nex".format(idx)
             )
         print("simulated sequences on {} species trees.".format(self.reps))
 
@@ -262,7 +297,7 @@ class Simulator:
             # Define and run raxml object.
             rax = ipa.raxml(
                 name="tmp",
-                data=self.data.at[idx, "seqpath"],
+                data=self.data.at[idx, "phy_seqpath"],
                 workdir=tempfile.gettempdir(),
                 N=100,
                 T=8,
@@ -275,7 +310,7 @@ class Simulator:
             self.data.loc[idx, "raxml_tree"] = raxtree.write(tree_format=0)
 
             # until/unless we add mrbayes, we can remove sequence files here
-            os.remove(self.data.at[idx, "seqpath"])
+            # os.remove(self.data.at[idx, "seqpath"])
 
 
     def batch_chronos(self):
@@ -329,6 +364,69 @@ class Simulator:
                 key = "chronos_{}".format(model)
                 self.data.loc[idx, key] = ctre
 
+    def batch_mrbayes(self):
+        '''Run mrbayes on sequence data from ipcoal to infer trees.'''
+
+        for idx in self.data.index:
+
+            # Define and run mrbayes object.
+            mb = ipa.mrbayes(
+                data = self.data.at[idx, "nex_seqpath"],
+                name = "tmp",
+                workdir = tempfile.gettempdir(),
+                clock_model = 2,
+                constraints = self.sptree,
+                ngen = int(1e6),
+                nruns = 2,
+            )
+
+            # Add priors for tree age & clade names, plus topology fixing.
+            with open(mb.nexus, 'r+') as fd:
+                contents = fd.readlines()
+                fd.seek(0)
+                contents.insert(24, "  " + treeage_string.format(self.mb_treeagepr) + "\n\n")
+                contents.insert(27, "  " + topology_string.format(", ".join(self.mb_names)) + "\n")
+                contents.insert(29, '''  startvals Tau = fixedtree;
+            propset ExtSprClock(Tau,V)$prob=0;
+            propset NNIClock(Tau,V)$prob=0;
+            propset ParsSPRClock(Tau,V)$prob=0;\n\n''')
+                fd.seek(0)
+
+                # Add calibrations for individual clades.
+                for i in range(len(self.mb_names)):
+                    if i == len(self.mb_names) - 1:
+                        contents.insert((25 + i), "  " + calib_string.format(self.mb_names[i], self.mb_tips[i], self.mb_priors[i]))
+                        fd.seek(0)
+                    else: 
+                        contents.insert((25 + i), 
+                        "  " + calib_string.format(self.mb_names[i], self.mb_tips[i], self.mb_priors[i]) + "\n\n")
+                        fd.seek(0)
+
+                # Remove unnecessary line.
+                for line in contents:
+                    if line.startswith("  prset topologypr=fixed(fixedtree);"):
+                        pass
+                    else:
+                        fd.write(line)
+
+                # if above fails, split read/write as two with-loops, use contents variable to transfer
+
+            # Run mrbayes object.
+            subprocess.run(
+                    ["mb", mb.nexus], 
+                    check=True,
+                    stdout=subprocess.PIPE,
+                )
+
+            # Store output.
+            self.data.loc[idx, "mrbayes_tree"] = toytree.tree(mb.trees.constre, tree_format=10)
+
+
+
+
+
+
+
 
 
 if __name__ == "__main__":
@@ -340,7 +438,7 @@ if __name__ == "__main__":
 
     sim = Simulator(
         tree=sptree, 
-        reps=4, 
+        reps=1, 
         min_Ne=1e4,
         max_Ne=1e4,
         seed=123,
@@ -354,6 +452,10 @@ if __name__ == "__main__":
             ("r0", "r1"): (1e2, 1e4),
             ("r1", "r6"): (1e5, 1e5),        
         },
+        mb_names=["test1", "test2", "test3"],
+        mb_tips=["r0 r1 r2 r3", "r4 r5", "r6 r7 r8 r9"],
+        mb_priors=["uniform(1, 100)", "uniform(1, 100)", "uniform(1, 100)"],
+        mb_treeagepr="uniform(1, 100)"
     )
     sim.run()
 
@@ -361,3 +463,8 @@ if __name__ == "__main__":
     print(sim.data.T)
     chtree = toytree.tree(sim.data.at[0, 'chronos_relaxed'])
     print(chtree)
+    mbtree = toytree.tree(sim.data.at[0, 'mrbayes_tree'])
+    print(mbtree)
+
+    # save results to csv
+    sim.data.to_csv("~/phylo-timescale/sim.csv")
