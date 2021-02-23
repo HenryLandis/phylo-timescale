@@ -313,8 +313,8 @@ class Simulator:
             # "-x", "12345"
 
             # RAxML has no built-in force option to remove existing files, so this handles removal if necessary.
-            if os.path.exists("/tmp/RAxML_info.tmp"):
-                os.remove("/tmp/RAxML_info.tmp")
+            if os.path.exists(os.path.join(tempfile.gettempdir(), "RAxML_info.tmp")):
+                os.remove(os.path.join(tempfile.gettempdir(), "RAxML_info.tmp"))
 
             # Run RAxML, or report errors if any.
             try:
@@ -325,7 +325,7 @@ class Simulator:
                 raise
             
             # save the newick string to file
-            raxtree = toytree.tree(os.path.join(tempfile.gettempdir(), "/tmp/RAxML_bestTree.tmp"))
+            raxtree = toytree.tree(os.path.join(tempfile.gettempdir(), "RAxML_bestTree.tmp"))
             raxtree = raxtree.root(self.root)
             self.data.loc[idx, "raxml_tree"] = raxtree.write(tree_format=0)
 
