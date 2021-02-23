@@ -294,18 +294,19 @@ class Simulator:
         """       
         for idx in self.data.index:
         
-            # Write tree topology to a file.
-            with open("/tmp/tmp.tre", "w") as f:
+            # Write tree topology to temporary file.
+            tmp_tree = os.path.join(tempfile.gettempdir(), "tmp.tre")
+            with open(tmp_tree, "w") as f:
                 f.write(self.data.at[idx, "spp_tree"])
 
             # Build RAxML command.
             cmd = ["raxmlHPC-PTHREADS-AVX2", # Add relative conda path.
             "-f", "e",
-            "-t", "/tmp/tmp.tre",
+            "-t", tmp_tree,
             "-T", "8",
             "-m", "GTRGAMMA",
             "-n", "tmp",
-            "-w", "/tmp",
+            "-w", tempfile.gettempdir(),
             "-s", self.data.at[idx, "phy_seqpath"]]
             # "-p", "54321",
             # "-N", "100",
@@ -324,7 +325,7 @@ class Simulator:
                 raise
             
             # save the newick string to file
-            raxtree = toytree.tree("/tmp/RAxML_bestTree.tmp")
+            raxtree = toytree.tree(os.path.join(tempfile.gettempdir(), "/tmp/RAxML_bestTree.tmp"))
             raxtree = raxtree.root(self.root)
             self.data.loc[idx, "raxml_tree"] = raxtree.write(tree_format=0)
 
@@ -434,7 +435,10 @@ class Simulator:
                 )
 
             # Load and store output.
-            self.data.loc[idx, "mrbayes_tree"] = toytree.tree("/tmp/tmp.nex.con.tre", tree_format=10)
+            self.data.loc[idx, "mrbayes_tree"] = toytree.tree(
+                os.path.join(tempfile.gettempdir(), "/tmp/tmp.nex.con.tre"),
+                tree_format=10
+                )
 
 
 
