@@ -293,6 +293,8 @@ class Simulator:
         Infer raxml trees from sequence data.
         """       
         for idx in self.data.index:
+
+            tempfile.tempdir = "/tmp"
         
             # Write tree topology to temporary file.
             tmp_tree = os.path.join(tempfile.gettempdir(), "tmp.tre")
