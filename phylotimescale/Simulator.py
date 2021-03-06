@@ -101,7 +101,7 @@ class Simulator:
             "nloci": 100, 
             "nsites": 1000,
         },
-        chronos_constraints={},
+        chronos_constraints=[],
         mb_params=[
         ["test1", "r0 r1 r2 r3", "uniform(1, 10)"],
         ["test2", "r4 r5", "uniform(1, 10)"],
@@ -294,8 +294,6 @@ class Simulator:
         """       
         for idx in self.data.index:
 
-            tempfile.tempdir = "/tmp"
-        
             # Write tree topology to temporary file.
             tmp_tree = os.path.join(tempfile.gettempdir(), "tmp.tre")
             with open(tmp_tree, "w") as f:
@@ -327,7 +325,7 @@ class Simulator:
                 raise
             
             # save the newick string to file
-            raxtree = toytree.tree(os.path.join(tempfile.gettempdir(), "RAxML_bestTree.tmp"))
+            raxtree = toytree.tree(os.path.join(tempfile.gettempdir(), "RAxML_result.tmp"))
             raxtree = raxtree.root(self.root)
             self.data.loc[idx, "raxml_tree"] = raxtree.write(tree_format=0)
 
@@ -337,23 +335,53 @@ class Simulator:
         Run chronos on raxml trees to infer an ultrametric tree with 
         both rates=gamma and rates=correlated.
         """
+        # Define variables to build chronos dicts.
+        cmin_age = ()
+        if len(self.chronos_constraints[1].split(" ")) == 1:
+            cmin_age = self.chronos_constraints[1]
+        else:
+            for i in self.chronos_constraints[1].split(" "):
+                cmin_age = cmin_age + (i ,)       
+        cmax_age = ()
+        if len(self.chronos_constraints[3].split(" ")) == 1:
+            cmax_age = self.chronos_constraints[3]
+        else:
+            for i in self.chronos_constraints[3].split(" "):
+                cmax_age = cmax_age + (i ,)
+        ctips1 = ()
+        if len(self.chronos_constraints[0].split(" ")) == 1:
+            ctips1 = "'{}'".format(self.chronos_constraints[0])
+        else:
+            for i in self.chronos_constraints[0].split(" "):
+                ctips1 = ctips1 + (i ,)
+        ctips2 = ()
+        if len(self.chronos_constraints[2].split(" ")) == 1:
+            ctips2 = "'{}'".format(self.chronos_constraints[2])
+        else:
+            for i in self.chronos_constraints[2].split(" "):
+                ctips2 = ctips2 + (i ,)
+
         for idx in self.data.index:
 
-            # build the chronos argument dict
+            # Build chronos dict.
             chronos_kwargs = {
                 "raxml_tree": self.data.at[idx, "raxml_tree"],
-                "min_ages": ",".join(
-                    [str(i[0]) for i in self.chronos_constraints.values()]
-                ),
-                "max_ages": ",".join(
-                    [str(i[1]) for i in self.chronos_constraints.values()]
-                ),
-                "tips1": ",".join(
-                    ["'{}'".format(i[0]) for i in self.chronos_constraints.keys()]
-                ),
-                "tips2": ",".join(
-                    ["'{}'".format(i[1]) for i in self.chronos_constraints.keys()]
-                ),
+                "min_ages": str(cmin_age).strip("()").replace("'", ""),
+                "max_ages": str(cmax_age).strip("()").replace("'", ""),
+                "tips1": str(ctips1).strip("()"),
+                "tips2": str(ctips2).strip("()"),
+                #"min_ages": ",".join(
+                #    [str(i[0]) for i in self.chronos_constraints.values()]
+                #),
+                #"max_ages": ",".join(
+                #    [str(i[1]) for i in self.chronos_constraints.values()]
+                #),
+                #"tips1": ",".join(
+                #    ["'{}'".format(i[0]) for i in self.chronos_constraints.keys()]
+                #),
+                #"tips2": ",".join(
+                #    ["'{}'".format(i[1]) for i in self.chronos_constraints.keys()]
+                #),
                 "lamb": str(1.0),
             }
 
@@ -403,7 +431,7 @@ class Simulator:
             with open(mb.nexus, 'r+') as fd:
                 contents = fd.readlines()
                 fd.seek(0)
-                contents.insert(24, "  " + treeage_string.format(self.mb_treeagepr) + "\n\n")
+                #contents.insert(24, "  " + treeage_string.format(self.mb_treeagepr) + "\n\n")
                 contents.insert(27, "  " + topology_string.format(", ".join(i[0] for i in self.mb_params)) + "\n")
                 contents.insert(29, '''  startvals Tau = fixedtree;
             propset ExtSprClock(Tau,V)$prob=0;
@@ -459,7 +487,7 @@ if __name__ == "__main__":
 
     sim = Simulator(
         tree=sptree, 
-        reps=1, 
+        reps=4, 
         min_Ne=1e4,
         max_Ne=1e4,
         seed=123,
@@ -469,10 +497,16 @@ if __name__ == "__main__":
             "nloci": 20, 
             "nsites": 1000,
         },
-        chronos_constraints={
-            ("r0", "r1"): (1e2, 1e4),
-            ("r1", "r6"): (1e5, 1e5),        
-        },
+        chronos_constraints=[
+            "r0 r1",
+            "1e2 1e5",
+            "r1 r6",
+            "1e4 1e5"
+        ],
+        #chronos_constraints={
+         #   ("r0", "r1"): (1e2, 1e4),
+         #   ("r1", "r6"): (1e5, 1e5),        
+        #},
         mb_params=[
         ["test1", "r0 r1 r2 r3", "uniform(1, 10)"],
         ["test2", "r4 r5", "uniform(1, 10)"],
