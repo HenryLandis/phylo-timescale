@@ -7,6 +7,7 @@ Describe this entire script here.
 import toytree
 import numpy as np
 import pandas as pd
+from statistics import mean
 
 # makes pandas DF with wide columns look nicer
 pd.set_option("max_colwidth", 14)
@@ -30,16 +31,16 @@ class Analysis:
     
 
 
-    def run(self):
+    def run(self, calc = "mean"):
         """
         Run simple and relative error.  
         """
-        self.simple_error()
-        self.relative_error()
+        self.simple_error(calc = calc)
+        self.relative_error(calc = calc)
 
 
 
-    def simple_error(self):
+    def simple_error(self, calc = "mean"):
         "Calculate simple error between true tree and chronos or mrbayes output."
         
         # Get edge lengths of true tree.
@@ -54,26 +55,71 @@ class Analysis:
                 dtree = toytree.tree(self.data.at[idx, model])
                 dtree_edge_lengths = dtree.get_edge_values(feature="height")
 
-                # Calculate array.
-                subtract_array = true_edge_lengths - dtree_edge_lengths
-            
-                # Square each element in the array.
-                squared_array = np.square(subtract_array)
-            
-                # Sum all elements in the array (sum of squares).
-                sum_squares = np.sum(squared_array)
+                # Average of absolute difference between node neights.
+                if calc =="mean":
 
-                # Save error to appropriate colmun.
-                if model == "chronos_correlated":
-                    self.data.loc[idx, "chc_simple_error"] = sum_squares
-                elif model == "chronos_relaxed":
-                    self.data.loc[idx, "chr_simple error"] = sum_squares
-                elif model == "mrbayes_tree":
-                    self.data.loc[idx, "mb_simple_error"] = sum_squares
+                # mrbayes: correct for output and rotations, then get average per-branch deviation from true node height.
+                    # if model == "mrbayes_tree":
+                        # dtree_edge_lengths = dtree_edge_lengths * 1e6
+                    dists = []
+                    for nidx in self.sptree.idx_dict:
+                        tips = self.sptree.get_tip_labels(nidx)
+                        dtree_nidx = dtree.get_mrca_idx_from_tip_labels(tips)
+                        dtree_node = dtree.idx_dict[dtree_nidx]
+                        true_node = self.sptree.idx_dict[nidx]
+                        # print(true_node.height, dtree_node.height, dtree_node.height * 1e6)
+                        if true_node.is_leaf() == False:
+                            diff = abs(true_node.height - (dtree_node.height * 1e6)) / true_node.height
+                        dists.append(diff)
+                        # print(dists)
+                    if model == "chronos_correlated":
+                        self.data.loc[idx, "chc_simple_error"] = mean(dists)
+                    elif model == "chronos_relaxed":
+                        self.data.loc[idx, "chr_simple_error"] = mean(dists)
+                    elif model == "mrbayes_tree":
+                        self.data.loc[idx, "mb_simple_error"] = mean(dists)
+
+                # chronos: calculate array.
+                    #else:
+                        #subtract_array = abs(true_edge_lengths - dtree_edge_lengths) / true_edge_lengths
+                        #if model == "chronos_correlated":
+                            #self.data.loc[idx, "chc_simple_error"] = subtract_array.mean()
+                        #elif model == "chronos_relaxed":
+                            #self.data.loc[idx, "chr_simple_error"] = subtract_array.mean()
+
+                # Sum of squares of absolute differences between node neights.
+                elif calc == "ss":
+                    if model == "mrbayes_tree":
+                        dists = []
+                        for nidx in self.sptree.idx_dict:
+                            tips = self.sptree.get_tip_labels(nidx)
+                            dtree_nidx = dtree.get_mrca_idx_from_tip_labels(tips)
+                            dtree_node = dtree.idx_dict[dtree_nidx]
+                            true_node = self.sptree.idx_dict[nidx]
+                            # print(true_node.height, dtree_node.height, dtree_node.height * 1e6)
+                            if true_node.height == 0:
+                                sqdiff = np.square(abs(1 - (dtree_node.height * 1e6)))
+                            else:
+                                sqdiff = np.square(abs(true_node.height - (dtree_node.height * 1e6)) / true_node.height)
+                            dists.append(sqdiff)
+                        # print(dists)
+                        self.data.loc[idx, "mb_simple_error"] = sum(dists)
+                    else:
+                        subtract_array = abs(true_edge_lengths - dtree_edge_lengths) / true_edge_lengths
+                        squared_array = np.square(subtract_array)
+                        sum_squares = np.sum(squared_array)
+                        if model == "chronos_correlated":
+                            self.data.loc[idx, "chc_simple_error"] = sum_squares
+                        elif model == "chronos_relaxed":
+                            self.data.loc[idx, "chr_simple_error"] = sum_squares
+
+                # Raise error for unexpected string.
+                else:
+                    print("Please enter a valid calc type.")
 
 
 
-    def relative_error(self):
+    def relative_error(self, calc = "mean"):
         "Calculate relative error between true tree and chronos or mrbayes output."
 
         # Get edge lengths of true tree.
@@ -86,25 +132,71 @@ class Analysis:
 
                 # Scale tree to match height of true tree, then get edge lengths to subtract from true edge lengths.
                 dtree = toytree.tree(self.data.at[idx, model])
-                dtree.mod.node_scale_root_height(treeheight=list(self.sptree.get_feature_dict("height").keys())[0])
+                dtree = dtree.mod.node_scale_root_height(treeheight=list(self.sptree.get_feature_dict("height").keys())[0])
                 dtree_edge_lengths = dtree.get_edge_values(feature="height")
 
-                # Calculate array.
-                subtract_array = true_edge_lengths - dtree_edge_lengths
-            
-                # Square each element in the array.
-                squared_array = np.square(subtract_array)
-            
-                # Sum all elements in the array (sum of squares).
-                sum_squares = np.sum(squared_array)
+               # Average of absolute difference between node neights.
+                if calc =="mean":
 
-                # Save error to appropriate colmun.
-                if model == "chronos_correlated":
-                    self.data.loc[idx, "chc_relative_error"] = sum_squares
-                elif model == "chronos_relaxed":
-                    self.data.loc[idx, "chr_relative_error"] = sum_squares
-                elif model == "mrbayes_tree":
-                    self.data.loc[idx, "mb_relative_error"] = sum_squares
+                # mrbayes: correct for output and rotations, then get average per-branch deviation from true node height.
+                    #if model == "mrbayes_tree":
+                        # dtree_edge_lengths = dtree_edge_lengths * 1e6
+                    dists = []
+                    for nidx in self.sptree.idx_dict:
+                        tips = self.sptree.get_tip_labels(nidx)
+                        dtree_nidx = dtree.get_mrca_idx_from_tip_labels(tips)
+                        dtree_node = dtree.idx_dict[dtree_nidx]
+                        true_node = self.sptree.idx_dict[nidx]
+                        # print(true_node.height, dtree_node.height, dtree_node.height * 1e6)
+                        if true_node.is_leaf() == False:
+                            diff = abs(true_node.height - dtree_node.height) / true_node.height
+                        dists.append(diff)
+                        # print(dists)
+                    if model == "chronos_correlated":
+                        self.data.loc[idx, "chc_relative_error"] = mean(dists)
+                    elif model == "chronos_relaxed":
+                        self.data.loc[idx, "chr_relative_error"] = mean(dists)
+                    elif model == "mrbayes_tree":
+                        self.data.loc[idx, "mb_relative_error"] = mean(dists)
+                        # print(list(dtree.get_feature_dict("height").keys())[0])
+
+                # chronos: calculate array.
+                    #else:
+                        #subtract_array = abs(true_edge_lengths - dtree_edge_lengths) / true_edge_lengths
+                        #if model == "chronos_correlated":
+                            #self.data.loc[idx, "chc_relative_error"] = subtract_array.mean()
+                        #elif model == "chronos_relaxed":
+                            #self.data.loc[idx, "chr_relative_error"] = subtract_array.mean()
+
+                # Sum of squares of absolute differences between node neights.
+                elif calc == "ss":
+                    if model == "mrbayes_tree":
+                        dists = []
+                        for nidx in self.sptree.idx_dict:
+                            tips = self.sptree.get_tip_labels(nidx)
+                            dtree_nidx = dtree.get_mrca_idx_from_tip_labels(tips)
+                            dtree_node = dtree.idx_dict[dtree_nidx]
+                            true_node = self.sptree.idx_dict[nidx]
+                            # print(true_node.height, dtree_node.height, dtree_node.height * 1e6)
+                            if true_node.height == 0:
+                                sqdiff = np.square(abs(1 - dtree_node.height))
+                            else:
+                                sqdiff = np.square(abs(true_node.height - dtree_node.height) / true_node.height)
+                            dists.append(sqdiff)
+                        # print(dists)
+                        self.data.loc[idx, "mb_relative_error"] = sum(dists)
+                    else:
+                        subtract_array = abs(true_edge_lengths - dtree_edge_lengths) / true_edge_lengths
+                        squared_array = np.square(subtract_array)
+                        sum_squares = np.sum(squared_array)
+                        if model == "chronos_correlated":
+                            self.data.loc[idx, "chc_relative_error"] = sum_squares
+                        elif model == "chronos_relaxed":
+                            self.data.loc[idx, "chr_relative_error"] = sum_squares
+
+                # Raise error for unexpected string.
+                else:
+                    print("Please enter a valid calc type.")
 
 
 
